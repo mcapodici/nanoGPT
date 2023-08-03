@@ -15,6 +15,160 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+# # From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
+# def softmax_n_shifted_zeros(input: torch.Tensor, n: int) -> torch.Tensor:
+#     """
+#     $\text(softmax)_n(x_i) = exp(x_i) / (n + \sum_j exp(x_j))$
+
+#     Note: softmax_n, with fixed input, is _not_ shift-symmetric when n != 0, and we must account for this.
+#     Normally when computing a softmax, the maxes are subtracted from the inputs for numeric stability.
+#     """
+#     # compute the maxes along the last dimension
+#     input_maxes = input.max(dim=-1, keepdim=True).values
+#     # shift the input to prevent overflow (and underflow in the denominator)
+#     shifted_inputs = torch.subtract(input, input_maxes)
+#     # compute the numerator and softmax_0 denominator using the shifted input
+#     numerator = torch.exp(shifted_inputs)
+#     original_denominator = numerator.sum(dim=-1, keepdim=True)
+#     # we need to shift the zeros in the same way we shifted the inputs
+#     shifted_zeros = torch.multiply(input_maxes, -1)
+#     # and then add this contribution to the denominator
+#     denominator = torch.add(original_denominator, torch.multiply(torch.exp(shifted_zeros), n))
+
+#     if denominator.isnan().any().item():
+#         print(f"original_denominator {original_denominator}")
+#         raise "Denominator is nan"
+
+#     if numerator.isnan().any().item():
+#         print(f"numerator {numerator}")
+#         raise "numerator has nan"
+
+#     return torch.divide(numerator, denominator)
+
+# # From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
+# def softmax_1(input: torch.Tensor) -> torch.Tensor:
+#     """
+#     $\text(softmax)_n(x_i) = exp(x_i) / (1 + \sum_j exp(x_j))$
+
+#     After a small amount of testing, the "shifted zeros" approach appears to be faster.
+#     I am definitely open to suggestions on which approach is better though.
+#     """
+#     return softmax_n_shifted_zeros(input, 1)
+
+
+def softmax1(x, c, dim=-1):
+    shift = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x-shift)    
+    result = exp_x / (c * torch.exp(-shift) + exp_x.sum(dim=dim, keepdim=True))
+    return result
+
+def softmax1_with_logsumexp(x, c, dim=-1):
+    shift = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x - shift)
+    sum_exp_x =  c * torch.exp(-shift) + torch.sum(exp_x, dim=dim, keepdim=True)
+    log_softmax = x - shift - torch.log(sum_exp_x)
+    return torch.exp(log_softmax)
+
+def softmax1_with_explicit_backprop(x, c, dim=-1):
+    return Softmax1Function.apply(x, c, dim)
+
+class Softmax1Function(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input_tensor, c, dim):
+        """
+        Forward pass of the softmax function.
+
+        :param ctx: Context object to store information for the backward pass.
+        :param input_tensor: Input tensor.
+        :return: Output tensor after applying the softmax function.
+        """
+        if (len(input_tensor.shape) < 2):
+            raise "<2d not supported"
+        max_vals, _ = torch.max(input_tensor, dim=dim, keepdim=True)
+        exp_vals = torch.exp(input_tensor - max_vals)
+        softmax_output = exp_vals / (c * torch.exp(-max_vals) + torch.sum(exp_vals, dim=dim, keepdim=True))
+        
+        ctx.save_for_backward(softmax_output)
+        
+        return softmax_output
+
+
+            # # 1. [1, 2, 3]
+            # # 2. [4, 5, 6]
+#            n_dim_softmax = softmax.shape[-1]
+
+            # # backprop formula, where S(z_i) is the forward pass softmax result for z_i:
+            # #
+            # # d S(z_i)    /  -S(z_i) * S(z_j) + S(z_i)    if i = j
+            # # -------- =  |
+            # #  d(z_j)     \  -S(z_i) * S(z_j)             otherwise
+            # #
+
+
+            # # To reduce memory usage by creating big sparse identity matrices, I am
+            # # processing each softmax dimension in a loop :-(. Maye there is a cleverer
+            # # way to do this.
+            # grad_input = grad_output.detach()
+            # # for softmax_i in range(n_dim_softmax):
+            # #     d_softmax_part1 = softmax[..., softmax_i]
+
+            # #     grad_input_i = grad_input[..., softmax_i]
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        """
+        Backward pass of the softmax function.
+
+        :param ctx: Context object that stores information for the backward pass.
+        :param grad_output: Gradient of the loss with respect to the output.
+        :return: Gradient of the loss with respect to the input.
+        """
+
+        grad_input = None
+        if ctx.needs_input_grad[0]:
+            softmax, = ctx.saved_tensors
+
+            # backprop formula, where S(z_i) is the forward pass softmax result for z_i:
+            #
+            # d S(z_i)    /  -S(z_i) * S(z_i    ) + S(z_i)    if i = j
+            # -------- =  |
+            #  d(z_j)     \  -S(z_i) * S(z_j)             otherwise
+
+            grad_output_softmax_dot_product = -torch.matmul(
+                    grad_output.unsqueeze(-2), # B * 1 * N
+                    softmax.unsqueeze(-1),     # B * N * 1
+                ).squeeze().squeeze() 
+            grad_input = softmax * (grad_output_softmax_dot_product.unsqueeze(-1) + grad_output)
+
+        return grad_input, None, None
+
+def test_a_case(ex, c):
+    input_tensor1 = torch.tensor(ex, requires_grad=True)
+    print(f"case: c={c}, tensor={ex}, shape={input_tensor1.shape}")
+    output1 = softmax1(input_tensor1, c)
+    loss1 = torch.sum(output1)
+    loss1.backward()
+
+    input_tensor2 = torch.tensor(ex, requires_grad=True)
+    output2 = softmax1_with_explicit_backprop(input_tensor2, c)
+    loss2 = torch.sum(output2)
+    loss2.backward()
+
+    print("grads", input_tensor1.grad, input_tensor2.grad)
+    assert(torch.allclose(output1, output2))
+    assert(torch.allclose(input_tensor1.grad, input_tensor2.grad, atol=0.001))
+    print("passed")
+
+def test():
+    test_a_case([[1.0,2.0,3.0]], 1)
+    test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
+    test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0],[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
+    test_a_case([[[1.0,2.0,3.0],[1.0,1.0,1.0]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
+    test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
+    test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 0)    
+    test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 2)
+    print("all passed")
+
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
@@ -42,12 +196,16 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+        self.flash = False # hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
             # causal mask to ensure that attention is only applied to the left in the input sequence
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
+        self.use_softmax1 = config.use_softmax1
+        self.softmax1_c = config.softmax1_c
+        if self.use_softmax1:
+            print(f"Used softmax1, c = {self.softmax1_c}")
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
@@ -66,7 +224,10 @@ class CausalSelfAttention(nn.Module):
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-            att = F.softmax(att, dim=-1)
+            if self.use_softmax1:
+                att = softmax1_with_explicit_backprop(att, self.softmax1_c, dim=-1)
+            else:
+                att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
@@ -114,6 +275,8 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    use_softmax1: bool = False
+    softmax1_c: float = 1e-3
 
 class GPT(nn.Module):
 
