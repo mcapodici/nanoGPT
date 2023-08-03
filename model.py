@@ -16,7 +16,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 # From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
-def softmax_n_shifted_zeros(input: Tensor, n: int) -> Tensor:
+def softmax_n_shifted_zeros(input: torch.Tensor, n: int) -> torch.Tensor:
     """
     $\text(softmax)_n(x_i) = exp(x_i) / (n + \sum_j exp(x_j))$
 
@@ -37,7 +37,7 @@ def softmax_n_shifted_zeros(input: Tensor, n: int) -> Tensor:
     return torch.divide(numerator, denominator)
 
 # From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
-def softmax_1(input: Tensor) -> Tensor:
+def softmax_1(input: torch.Tensor) -> torch.Tensor:
     """
     $\text(softmax)_n(x_i) = exp(x_i) / (1 + \sum_j exp(x_j))$
 
