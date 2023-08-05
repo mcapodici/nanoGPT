@@ -100,7 +100,7 @@ class CausalSelfAttention(nn.Module):
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             if self.use_softmax1:
                 print('used softmax1')
-                att = softmax_1(att, dim=-1)
+                att = softmax_1(att)
             else:
                 print('used softmax0')
                 att = F.softmax(att, dim=-1)
