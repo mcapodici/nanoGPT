@@ -80,6 +80,8 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
         self.use_softmax1 = config.use_softmax1
+        if self.use_softmax1:
+            print("Used softmax1")
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
@@ -99,10 +101,8 @@ class CausalSelfAttention(nn.Module):
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             if self.use_softmax1:
-                print('used softmax1')
                 att = softmax_1(att)
             else:
-                print('used softmax0')
                 att = F.softmax(att, dim=-1)
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
