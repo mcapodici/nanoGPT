@@ -34,6 +34,15 @@ def softmax_n_shifted_zeros(input: torch.Tensor, n: int) -> torch.Tensor:
     shifted_zeros = torch.multiply(input_maxes, -1)
     # and then add this contribution to the denominator
     denominator = torch.add(original_denominator, torch.multiply(torch.exp(shifted_zeros), n))
+
+    if math.isnan(denominator.item()):
+        print(f"original_denominator {original_denominator}")
+        raise "Denominator is nan"
+
+    if numerator.isnan().any().item():
+        print(f"numerator {numerator}")
+        raise "numerator has nan"
+
     return torch.divide(numerator, denominator)
 
 # From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
