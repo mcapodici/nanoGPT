@@ -15,45 +15,51 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
-def softmax_n_shifted_zeros(input: torch.Tensor, n: int) -> torch.Tensor:
-    """
-    $\text(softmax)_n(x_i) = exp(x_i) / (n + \sum_j exp(x_j))$
+# # From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
+# def softmax_n_shifted_zeros(input: torch.Tensor, n: int) -> torch.Tensor:
+#     """
+#     $\text(softmax)_n(x_i) = exp(x_i) / (n + \sum_j exp(x_j))$
 
-    Note: softmax_n, with fixed input, is _not_ shift-symmetric when n != 0, and we must account for this.
-    Normally when computing a softmax, the maxes are subtracted from the inputs for numeric stability.
-    """
-    # compute the maxes along the last dimension
-    input_maxes = input.max(dim=-1, keepdim=True).values
-    # shift the input to prevent overflow (and underflow in the denominator)
-    shifted_inputs = torch.subtract(input, input_maxes)
-    # compute the numerator and softmax_0 denominator using the shifted input
-    numerator = torch.exp(shifted_inputs)
-    original_denominator = numerator.sum(dim=-1, keepdim=True)
-    # we need to shift the zeros in the same way we shifted the inputs
-    shifted_zeros = torch.multiply(input_maxes, -1)
-    # and then add this contribution to the denominator
-    denominator = torch.add(original_denominator, torch.multiply(torch.exp(shifted_zeros), n))
+#     Note: softmax_n, with fixed input, is _not_ shift-symmetric when n != 0, and we must account for this.
+#     Normally when computing a softmax, the maxes are subtracted from the inputs for numeric stability.
+#     """
+#     # compute the maxes along the last dimension
+#     input_maxes = input.max(dim=-1, keepdim=True).values
+#     # shift the input to prevent overflow (and underflow in the denominator)
+#     shifted_inputs = torch.subtract(input, input_maxes)
+#     # compute the numerator and softmax_0 denominator using the shifted input
+#     numerator = torch.exp(shifted_inputs)
+#     original_denominator = numerator.sum(dim=-1, keepdim=True)
+#     # we need to shift the zeros in the same way we shifted the inputs
+#     shifted_zeros = torch.multiply(input_maxes, -1)
+#     # and then add this contribution to the denominator
+#     denominator = torch.add(original_denominator, torch.multiply(torch.exp(shifted_zeros), n))
 
-    if denominator.isnan().any().item():
-        print(f"original_denominator {original_denominator}")
-        raise "Denominator is nan"
+#     if denominator.isnan().any().item():
+#         print(f"original_denominator {original_denominator}")
+#         raise "Denominator is nan"
 
-    if numerator.isnan().any().item():
-        print(f"numerator {numerator}")
-        raise "numerator has nan"
+#     if numerator.isnan().any().item():
+#         print(f"numerator {numerator}")
+#         raise "numerator has nan"
 
-    return torch.divide(numerator, denominator)
+#     return torch.divide(numerator, denominator)
 
-# From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
-def softmax_1(input: torch.Tensor) -> torch.Tensor:
-    """
-    $\text(softmax)_n(x_i) = exp(x_i) / (1 + \sum_j exp(x_j))$
+# # From https://github.com/softmax1/EsperBERTo/blob/7d2d5ed8695b95ade6bcbe21b7ce981b3c9394d7/src/functional.py#L7C8-L7C8
+# def softmax_1(input: torch.Tensor) -> torch.Tensor:
+#     """
+#     $\text(softmax)_n(x_i) = exp(x_i) / (1 + \sum_j exp(x_j))$
 
-    After a small amount of testing, the "shifted zeros" approach appears to be faster.
-    I am definitely open to suggestions on which approach is better though.
-    """
-    return softmax_n_shifted_zeros(input, 1)
+#     After a small amount of testing, the "shifted zeros" approach appears to be faster.
+#     I am definitely open to suggestions on which approach is better though.
+#     """
+#     return softmax_n_shifted_zeros(input, 1)
+
+
+def softmax1(x, dim=-1):
+    shift = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x-shift)
+    return exp_x / (torch.exp(-shift) + exp_x.sum(dim=dim, keepdim=True))
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -110,7 +116,7 @@ class CausalSelfAttention(nn.Module):
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             if self.use_softmax1:
-                att = softmax_1(att)
+                att = softmax1(att, dim=-1)
             else:
                 att = F.softmax(att, dim=-1)
             att = F.softmax(att, dim=-1)
