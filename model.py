@@ -35,7 +35,7 @@ def softmax_n_shifted_zeros(input: torch.Tensor, n: int) -> torch.Tensor:
     # and then add this contribution to the denominator
     denominator = torch.add(original_denominator, torch.multiply(torch.exp(shifted_zeros), n))
 
-    if math.isnan(denominator.item()):
+    if denominator.isnan().any().item():
         print(f"original_denominator {original_denominator}")
         raise "Denominator is nan"
 
