@@ -56,10 +56,10 @@ from torch.nn import functional as F
 #     return softmax_n_shifted_zeros(input, 1)
 
 
-def softmax1(x, dim=-1):
+def softmax1(x, c, dim=-1):
     shift = x.max(dim=dim, keepdim=True).values
     exp_x = torch.exp(x-shift)    
-    result = exp_x / (torch.exp(-shift) + exp_x.sum(dim=dim, keepdim=True))
+    result = exp_x / (c * torch.exp(-shift) + exp_x.sum(dim=dim, keepdim=True))
     return result
 
 class LayerNorm(nn.Module):
@@ -96,8 +96,9 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
         self.use_softmax1 = config.use_softmax1
+        self.softmax1_c = config.softmax1_c
         if self.use_softmax1:
-            print("Used softmax1")
+            print(f"Used softmax1, c = {self.softmax1_c}")
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
@@ -117,7 +118,7 @@ class CausalSelfAttention(nn.Module):
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             if self.use_softmax1:
-                att = softmax1(att, dim=-1)
+                att = softmax1(att, self.softmax1_c, dim=-1)
             else:
                 att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
@@ -168,6 +169,7 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     use_softmax1: bool = False
+    softmax1_c: float = 1e-3
 
 class GPT(nn.Module):
 
