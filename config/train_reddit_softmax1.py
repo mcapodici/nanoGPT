@@ -22,5 +22,3 @@ wandb_log = True
 wandb_project = 'nanoGPT_softmax1'
 wandb_run_name = 'reddit-mini-gpt-softmax-one'
 use_softmax1 = True
-
-compile = False
