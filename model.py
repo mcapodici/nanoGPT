@@ -58,8 +58,9 @@ from torch.nn import functional as F
 
 def softmax1(x, dim=-1):
     shift = x.max(dim=dim, keepdim=True).values
-    exp_x = torch.exp(x-shift)
-    return exp_x / (torch.exp(-shift) + exp_x.sum(dim=dim, keepdim=True))
+    exp_x = torch.exp(x-shift)    
+    result = exp_x / (torch.exp(-shift) + exp_x.sum(dim=dim, keepdim=True))
+    return result
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
