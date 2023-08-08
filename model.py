@@ -62,6 +62,13 @@ def softmax1(x, c, dim=-1):
     result = exp_x / (c * torch.exp(-shift) + exp_x.sum(dim=dim, keepdim=True))
     return result
 
+def softmax1_with_logsumexp(x, c, dim=-1):
+    shift = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x - shift)
+    sum_exp_x =  c * torch.exp(-shift) + torch.sum(exp_x, dim=dim, keepdim=True)
+    log_softmax = x - shift - torch.log(sum_exp_x)
+    return torch.exp(log_softmax)
+
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
@@ -118,7 +125,7 @@ class CausalSelfAttention(nn.Module):
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             if self.use_softmax1:
-                att = softmax1(att, self.softmax1_c, dim=-1)
+                att = softmax1_with_logsumexp(att, self.softmax1_c, dim=-1)
             else:
                 att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
