@@ -23,3 +23,4 @@ wandb_project = 'nanoGPT_softmax1'
 wandb_run_name = 'reddit-mini-gpt-softmax-one'
 use_softmax1 = True
 softmax1_c = 1e-3
+detect_from_iter_num = 370
