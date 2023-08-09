@@ -69,6 +69,83 @@ def softmax1_with_logsumexp(x, c, dim=-1):
     log_softmax = x - shift - torch.log(sum_exp_x)
     return torch.exp(log_softmax)
 
+def softmax1_with_explicit_backprop(x, c, dim=-1):
+    return Softmax1Function.apply(x, c, dim)
+
+class Softmax1Function(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input_tensor, c, dim):
+        """
+        Forward pass of the softmax function.
+
+        :param ctx: Context object to store information for the backward pass.
+        :param input_tensor: Input tensor.
+        :return: Output tensor after applying the softmax function.
+        """
+        if (len(input_tensor.shape) < 2):
+            raise "<2d not supported"
+        max_vals, _ = torch.max(input_tensor, dim=dim, keepdim=True)
+        exp_vals = torch.exp(input_tensor - max_vals)
+        softmax_output = exp_vals / (c * torch.exp(-max_vals) + torch.sum(exp_vals, dim=dim, keepdim=True))
+        
+        ctx.save_for_backward(softmax_output)
+        
+        return softmax_output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass of the softmax function.
+
+        :param ctx: Context object that stores information for the backward pass.
+        :param grad_output: Gradient of the loss with respect to the output.
+        :return: Gradient of the loss with respect to the input.
+        """
+        
+        softmax, = ctx.saved_tensors
+        
+        # Implementation based off code in https://e2eml.school/softmax.html, but generalized to N dimensional tensors
+
+        # This is a batch generalized version of softmax * id
+        # Unsqueeze adds an extra dimension in the last but one position, so that the last 2 dimensions become a 1 by N matrix,
+        # that when multiplied by ID become an N by N matrix whose diagonal is the softmaxes.
+        d_softmax_part1 = torch.unsqueeze(softmax, -2) * torch.eye(softmax.shape[-1])
+        # print("d_softmax_part1", d_softmax_part1)
+
+        # This is a batch generalized version of softmax^T @ softmax
+        d_softmax_part2 = torch.unsqueeze(softmax, -1) @ torch.unsqueeze(softmax, -2)
+        # print("d_softmax_part2", d_softmax_part2)
+
+        d_softmax = d_softmax_part1 - d_softmax_part2
+        # print('d_softmax', d_softmax)
+        # print('grad_output', grad_output)
+        grad_input = torch.unsqueeze(grad_output, 1) @ d_softmax
+        grad_input = torch.squeeze(grad_input, 1)
+
+        # print('grad_input', grad_input)
+        return grad_input, None, None
+
+def test_a_case(ex, c):
+    input_tensor1 = torch.tensor(ex, requires_grad=True)
+    output1 = softmax1(input_tensor1, c)
+    loss1 = torch.sum(output1)
+    loss1.backward()
+
+    input_tensor2 = torch.tensor(ex, requires_grad=True)
+    output2 = softmax1_with_explicit_backprop(input_tensor2, c)
+    loss2 = torch.sum(output2)
+    loss2.backward()
+
+    assert(torch.allclose(output1, output2))
+    assert(torch.allclose(input_tensor1, input_tensor2))
+
+def test():
+    test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
+    test_a_case([[1.0,2.0,3.0]], 1)
+    test_a_case([[[1.0,2.0,3.0],[1.0,1.0,1.0]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
+    test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
+    print("all passed")
+
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
@@ -125,7 +202,7 @@ class CausalSelfAttention(nn.Module):
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             if self.use_softmax1:
-                att = softmax1_with_logsumexp(att, self.softmax1_c, dim=-1)
+                att = softmax1_with_explicit_backprop(att, self.softmax1_c, dim=-1)
             else:
                 att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
