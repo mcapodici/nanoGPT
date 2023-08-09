@@ -101,29 +101,31 @@ class Softmax1Function(torch.autograd.Function):
         :param grad_output: Gradient of the loss with respect to the output.
         :return: Gradient of the loss with respect to the input.
         """
-        
-        softmax, = ctx.saved_tensors
-        
-        # Implementation based off code in https://e2eml.school/softmax.html, but generalized to N dimensional tensors
 
-        # This is a batch generalized version of softmax * id
-        # Unsqueeze adds an extra dimension in the last but one position, so that the last 2 dimensions become a 1 by N matrix,
-        # that when multiplied by ID become an N by N matrix whose diagonal is the softmaxes.
-        i = torch.eye(softmax.shape[-1], out=torch.empty_like(softmax))
-        d_softmax_part1 = torch.unsqueeze(softmax, -2) * i
-        # print("d_softmax_part1", d_softmax_part1)
+        grad_input = None
+        if ctx.needs_input_grad[0]:
+            softmax, = ctx.saved_tensors
+            
+            # Implementation based off code in https://e2eml.school/softmax.html, but generalized to N dimensional tensors
 
-        # This is a batch generalized version of softmax^T @ softmax
-        d_softmax_part2 = torch.unsqueeze(softmax, -1) @ torch.unsqueeze(softmax, -2)
-        # print("d_softmax_part2", d_softmax_part2)
+            # This is a batch generalized version of softmax * id
+            # Unsqueeze adds an extra dimension in the last but one position, so that the last 2 dimensions become a 1 by N matrix,
+            # that when multiplied by ID become an N by N matrix whose diagonal is the softmaxes.
+            i = torch.eye(softmax.shape[-1], out=torch.empty_like(softmax))
+            d_softmax_part1 = torch.unsqueeze(softmax, -2) * i
+            # print("d_softmax_part1", d_softmax_part1)
 
-        d_softmax = d_softmax_part1 - d_softmax_part2
-        # print('d_softmax', d_softmax)
-        # print('grad_output', grad_output)
-        grad_input = torch.unsqueeze(grad_output, 1) @ d_softmax
-        grad_input = torch.squeeze(grad_input, 1)
+            # This is a batch generalized version of softmax^T @ softmax
+            d_softmax_part2 = torch.unsqueeze(softmax, -1) @ torch.unsqueeze(softmax, -2)
+            # print("d_softmax_part2", d_softmax_part2)
 
-        # print('grad_input', grad_input)
+            d_softmax = d_softmax_part1 - d_softmax_part2
+            # print('d_softmax', d_softmax)
+            # print('grad_output', grad_output)
+            grad_input = torch.unsqueeze(grad_output, 1) @ d_softmax
+            grad_input = torch.squeeze(grad_input, 1)
+
+            # print('grad_input', grad_input)
         return grad_input, None, None
 
 def test_a_case(ex, c):
