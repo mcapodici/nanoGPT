@@ -109,7 +109,8 @@ class Softmax1Function(torch.autograd.Function):
         # This is a batch generalized version of softmax * id
         # Unsqueeze adds an extra dimension in the last but one position, so that the last 2 dimensions become a 1 by N matrix,
         # that when multiplied by ID become an N by N matrix whose diagonal is the softmaxes.
-        d_softmax_part1 = torch.unsqueeze(softmax, -2) * torch.eye(softmax.shape[-1])
+        i = torch.eye(softmax.shape[-1], out=torch.empty_like(softmax))
+        d_softmax_part1 = torch.unsqueeze(softmax, -2) * i
         # print("d_softmax_part1", d_softmax_part1)
 
         # This is a batch generalized version of softmax^T @ softmax
