@@ -92,6 +92,28 @@ class Softmax1Function(torch.autograd.Function):
         
         return softmax_output
 
+
+            # # 1. [1, 2, 3]
+            # # 2. [4, 5, 6]
+#            n_dim_softmax = softmax.shape[-1]
+
+            # # backprop formula, where S(z_i) is the forward pass softmax result for z_i:
+            # #
+            # # d S(z_i)    /  -S(z_i) * S(z_j) + S(z_i)    if i = j
+            # # -------- =  |
+            # #  d(z_j)     \  -S(z_i) * S(z_j)             otherwise
+            # #
+
+
+            # # To reduce memory usage by creating big sparse identity matrices, I am
+            # # processing each softmax dimension in a loop :-(. Maye there is a cleverer
+            # # way to do this.
+            # grad_input = grad_output.detach()
+            # # for softmax_i in range(n_dim_softmax):
+            # #     d_softmax_part1 = softmax[..., softmax_i]
+
+            # #     grad_input_i = grad_input[..., softmax_i]
+
     @staticmethod
     def backward(ctx, grad_output):
         """
@@ -120,16 +142,17 @@ class Softmax1Function(torch.autograd.Function):
             # print("d_softmax_part2", d_softmax_part2)
 
             d_softmax = d_softmax_part1 - d_softmax_part2
-            # print('d_softmax', d_softmax)
-            # print('grad_output', grad_output)
-            grad_input = torch.unsqueeze(grad_output, 1) @ d_softmax
-            grad_input = torch.squeeze(grad_input, 1)
+            # print('d_softmax', d_softmax, d_softmax.shape)
+            # print('grad_output', grad_output , grad_output.shape)
+            grad_input = torch.unsqueeze(grad_output, -2) @ d_softmax
+            grad_input = torch.squeeze(grad_input, -2)
 
             # print('grad_input', grad_input)
         return grad_input, None, None
 
 def test_a_case(ex, c):
     input_tensor1 = torch.tensor(ex, requires_grad=True)
+    print(f"case: c={c}, tensor={ex}, shape={input_tensor1.shape}")
     output1 = softmax1(input_tensor1, c)
     loss1 = torch.sum(output1)
     loss1.backward()
@@ -140,13 +163,17 @@ def test_a_case(ex, c):
     loss2.backward()
 
     assert(torch.allclose(output1, output2))
-    assert(torch.allclose(input_tensor1, input_tensor2))
+    assert(torch.allclose(input_tensor1.grad, input_tensor2.grad, atol=0.001))
+    print("passed")
 
 def test():
     test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
     test_a_case([[1.0,2.0,3.0]], 1)
+    test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0],[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
     test_a_case([[[1.0,2.0,3.0],[1.0,1.0,1.0]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
     test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
+    test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 0)    
+    test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 2)
     print("all passed")
 
 class LayerNorm(nn.Module):
