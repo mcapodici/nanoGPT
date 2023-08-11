@@ -115,7 +115,7 @@ class Softmax1Function(torch.autograd.Function):
             # #     grad_input_i = grad_input[..., softmax_i]
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_output: torch.Tensor):
         """
         Backward pass of the softmax function.
 
@@ -128,24 +128,64 @@ class Softmax1Function(torch.autograd.Function):
         if ctx.needs_input_grad[0]:
             softmax, = ctx.saved_tensors
             
+            # # 1. [1, 2, 3]
+            # # 2. [4, 5, 6]
+
+            n_dim_softmax = softmax.shape[-1]
+
+            # backprop formula, where S(z_i) is the forward pass softmax result for z_i:
+            #
+            # d S(z_i)    /  -S(z_i) * S(z_i    ) + S(z_i)    if i = j
+            # -------- =  |
+            #  d(z_j)     \  -S(z_i) * S(z_j)             otherwise
+            #n_dim_softmax
+
+            # To reduce memory usage by creating big sparse identity matrices, I am
+            # processing each softmax dimension in a loop :-(. Maye there is a cleverer
+            # way to do this.
+            grad_input = torch.zeros_like(grad_output) # B * N
+            for softmax_j in range(n_dim_softmax):
+                # print("grad_output", grad_output)
+                # print("softmax", softmax)
+                neg_sums = -torch.matmul(
+                    grad_output.unsqueeze(-2), # B * 1 * N
+                    softmax.unsqueeze(-1),     # B * N * 1
+                ).squeeze().squeeze() * softmax[..., softmax_j]
+                # print("go un -2", grad_output.unsqueeze(-2).shape)
+                # print("sm un -1", softmax.unsqueeze(-1).shape)
+                # print("dd", torch.matmul(
+                #     grad_output.unsqueeze(-2), # B * 1 * N
+                #     softmax.unsqueeze(-1),     # B * N * 1
+                # ).squeeze().squeeze().shape)
+                # print("dd", grad_output[..., softmax_j].shape)
+                
+                # print("neg_sums", neg_sums)
+                # print("neg_sums.shape", neg_sums.shape)
+                pos_part = softmax[..., softmax_j] * grad_output[..., softmax_j]
+                # print("pos_part", pos_part)
+                # print("pos_part.shape", pos_part.shape)
+                grad_input[..., softmax_j] = neg_sums + pos_part
+
+
+            
             # Implementation based off code in https://e2eml.school/softmax.html, but generalized to N dimensional tensors
 
-            # This is a batch generalized version of softmax * id
-            # Unsqueeze adds an extra dimension in the last but one position, so that the last 2 dimensions become a 1 by N matrix,
-            # that when multiplied by ID become an N by N matrix whose diagonal is the softmaxes.
-            i = torch.eye(softmax.shape[-1], out=torch.empty_like(softmax))
-            d_softmax_part1 = torch.unsqueeze(softmax, -2) * i
-            # print("d_softmax_part1", d_softmax_part1)
+            # # This is a batch generalized version of softmax * id
+            # # Unsqueeze adds an extra dimension in the last but one position, so that the last 2 dimensions become a 1 by N matrix,
+            # # that when multiplied by ID become an N by N matrix whose diagonal is the softmaxes.
+            # i = torch.eye(softmax.shape[-1], out=torch.empty_like(softmax))
+            # d_softmax_part1 = torch.unsqueeze(softmax, -2) * i
+            # # print("d_softmax_part1", d_softmax_part1)
 
-            # This is a batch generalized version of softmax^T @ softmax
-            d_softmax_part2 = torch.unsqueeze(softmax, -1) @ torch.unsqueeze(softmax, -2)
-            # print("d_softmax_part2", d_softmax_part2)
+            # # This is a batch generalized version of softmax^T @ softmax
+            # d_softmax_part2 = torch.unsqueeze(softmax, -1) @ torch.unsqueeze(softmax, -2)
+            # # print("d_softmax_part2", d_softmax_part2)
 
-            d_softmax = d_softmax_part1 - d_softmax_part2
-            # print('d_softmax', d_softmax, d_softmax.shape)
-            # print('grad_output', grad_output , grad_output.shape)
-            grad_input = torch.unsqueeze(grad_output, -2) @ d_softmax
-            grad_input = torch.squeeze(grad_input, -2)
+            # d_softmax = d_softmax_part1 - d_softmax_part2
+            # # print('d_softmax', d_softmax, d_softmax.shape)
+            # # print('grad_output', grad_output , grad_output.shape)
+            # grad_input = torch.unsqueeze(grad_output, -2) @ d_softmax
+            # grad_input = torch.squeeze(grad_input, -2)
 
             # print('grad_input', grad_input)
         return grad_input, None, None
@@ -162,13 +202,14 @@ def test_a_case(ex, c):
     loss2 = torch.sum(output2)
     loss2.backward()
 
+    print("grads", input_tensor1.grad, input_tensor2.grad)
     assert(torch.allclose(output1, output2))
     assert(torch.allclose(input_tensor1.grad, input_tensor2.grad, atol=0.001))
     print("passed")
 
 def test():
-    test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
     test_a_case([[1.0,2.0,3.0]], 1)
+    test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
     test_a_case([[1.0,2.0,3.0],[1.0,1.0,1.0],[1.0,2.0,3.0],[1.0,1.0,1.0]], 1)
     test_a_case([[[1.0,2.0,3.0],[1.0,1.0,1.0]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
     test_a_case([[[1e5,1e4,1e3],[1e-5,1e-4,1e-3]],[[1.0,2.0,3.0],[1.0,1.0,1.0]]], 1)
