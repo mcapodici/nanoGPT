@@ -138,9 +138,7 @@ class Softmax1Function(torch.autograd.Function):
                     grad_output.unsqueeze(-2), # B * 1 * N
                     softmax.unsqueeze(-1),     # B * N * 1
                 ).squeeze().squeeze() 
-            neg_sums = grad_output_softmax_dot_product.unsqueeze(-1) * softmax          
-            pos_part = softmax * grad_output    
-            grad_input = neg_sums + pos_part  
+            grad_input = softmax * (grad_output_softmax_dot_product.unsqueeze(-1) + grad_output)
 
         return grad_input, None, None
 
