@@ -1,0 +1,10 @@
+[project]
+dependencies = [
+    "torch",
+    "numpy",
+    "transformers",
+    "datasets",
+    "tiktoken",
+    "wandb",
+    "tqdm"
+]
