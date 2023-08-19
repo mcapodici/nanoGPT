@@ -23,3 +23,6 @@ wandb_project = 'nanoGPT_softmax1'
 wandb_run_name = 'reddit-mini-gpt-softmax-zero'
 use_softmax1 = False
 detect_from_iter_num = -1
+
+start = "The best fried chicken restaurant I would recommend is"
+max_new_tokens = 100

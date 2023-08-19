@@ -24,3 +24,6 @@ wandb_run_name = 'reddit-mini-gpt-softmax-one'
 use_softmax1 = True
 softmax1_c = 1e-3
 detect_from_iter_num = -1
+
+start = "The best fried chicken restaurant I would recommend is"
+max_new_tokens = 100
